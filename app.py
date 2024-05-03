@@ -13,7 +13,7 @@ load_dotenv()
 
 app = Flask(__name__)
 
-client = MongoClient(os.getenv("MONGODB_URL"), server_api=ServerApi('1'))
+client = MongoClient("mongodb+srv://bamsi:Alcuduur40@cluster0.vtlehsn.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0", server_api=ServerApi('1'))
 db = client["vihari"]
 CORS(app)
 
