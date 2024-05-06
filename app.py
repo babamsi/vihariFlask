@@ -13,7 +13,7 @@ load_dotenv()
 
 app = Flask(__name__)
 
-client = MongoClient(os.getenv("MONGODB_URL"), server_api=ServerApi('1'))
+client = MongoClient("mongodb+srv://bamsi:Alcuduur40@cluster0.vtlehsn.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0", server_api=ServerApi('1'))
 db = client["vihari"]
 CORS(app)
 
@@ -133,41 +133,76 @@ def createAdmin():
     admin_dict = {
         "firstname": "Bamsi",
         "lastName": "c",
-        "contact": "917710285988",
-        "zone": zoneAdmin['zone_name'] if zoneAdmin else "",
+        "contact": "+917981395086",
         "email": "hh989940@gmail.com",
         "license_number": "",
-        "role": ''
+        "role": 'admin'
     }
     admin.insert_one(admin_dict)
     # print(zoneAdmin)
     return "working..."
 
 
-@app.route('/createCustomer')
+@app.route('/createCustomer', methods=["POST"])
 def createCustomer():
+    incoming_msg = request.get_json()
     customer = db['Customer']
+    email = customer.find_one({"email": incoming_msg['email']})
+    if (email):
+        return "already used that email"
 
-    customer_dict = {
-        "firstname": "customer",
-        "lastname": "customer",
-        "mobile": "91**********",
-        "email": "*****@***.com",
-        "location": {
-            "lat": 1234532.343,
-            "long": 542532.234
-        },
-        "search_history": [],
-        "booking_history": [],
-        "total_payments": "",
-        "pending_payments": "",
-        "feedback": [],
-        "status": "",
-        "profile_url": ""
-    }
+    else:
+        customer_dict = {
+            "firstname": incoming_msg['firstName'],
+            "lastname": incoming_msg['lastName'],
+            "mobile": incoming_msg["phoneNumber"],
+            "email": incoming_msg['email'],
+            "location": {
+                "lat": '',
+                "long": ''
+            },
+            "search_history": [],
+            "booking_history": [],
+            "total_payments": "",
+            "pending_payments": "",
+            "feedback": [],
+            "status": "",
+            "profile_url": "",
+            'role': "user"
+        }
 
-    customer.insert_one(customer_dict)
+        customer.insert_one(customer_dict)
+        
+    # print(incoming_msg)
     return "working...."
+
+@app.route('/checkCustomer', methods=["POST"])
+def checkCustomer():
+    incoming_msg = request.get_json()
+    customers = db['Customer']
+    admin = db['Admins']
+    zoneAdmin = db['ZoneAdmins']
+    vendor = db['Vendors']
+    customer = customers.find_one({"mobile": incoming_msg["phoneNumber"]})
+    onlyAdmin = admin.find_one({"contact": incoming_msg['phoneNumber']})
+    onlyZoneAdmin = zoneAdmin.find_one({"mobile": incoming_msg['phoneNumber']})
+    onlyVendors = vendor.find_one({"mobile": incoming_msg['phoneNumber']})
+
+
+    if customer:
+        return json.loads(json_util.dumps(customer))
+    elif onlyAdmin:
+        return json.loads(json_util.dumps(onlyAdmin))
+    elif onlyZoneAdmin:
+        return json.loads(json_util.dumps(onlyZoneAdmin))
+    elif onlyVendors:
+        return json.loads(json_util.dumps(onlyVendors))
+    else:
+        return "You are not registered, please register first", 400
+
+
+
+
 
 @app.route('/createVendor', methods=["POST"])
 def createVendor():
@@ -189,7 +224,8 @@ def createVendor():
         "id_proof_front_url" :"",
         "id_proof_back_url": "",
         "profile_url": incoming_msg["profilePic"],
-        "pan_card": ""
+        "pan_card": "",
+        "role": "vendor"
         
     }
 
@@ -217,7 +253,8 @@ def createZoneAdmin():
         "id_proof_front_url" :"",
         "id_proof_back_url": "",
         "profile_url": incoming_msg["profilePic"],
-        "pan_card": ""
+        "pan_card": "",
+        "role": "zoneAdmin"
         
     }
 
