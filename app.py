@@ -21,7 +21,12 @@ app = Flask(__name__)
 client = MongoClient("mongodb+srv://bamsi:Alcuduur40@cluster0.vtlehsn.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0", server_api=ServerApi('1'))
 
 db = client["vihari"]
-CORS(app)
+CORS(app, resources={r"/*": {"origins": "*"}})
+
+@app.route('/')
+def start():
+    return "Vihari api is working....."
+
 
 @app.route('/order', methods=["POST"])
 def order():
@@ -82,6 +87,32 @@ def pricing():
     print(up)
     return "worked,,,"
 
+
+
+@app.route('/setBooking', methods=["POST"])
+def setBooking():
+        incoming_msg = request.get_json();
+        customer = db['Customer']
+        payload = {
+            "orginZone": incoming_msg['originZone'],
+            "to": incoming_msg['to'],
+            "duration": incoming_msg['duration'],
+            "distance": incoming_msg['distance'],
+            "paymentId": incoming_msg['paymentId'],
+            "price": incoming_msg['price']
+
+        }
+        user = customer.update_one({
+            "email": incoming_msg['email'],
+        } , {
+            '$push': {
+                "booking_history": payload
+            }
+        }
+        
+        )
+
+        return "working......"
 
 @app.route('/getZones')
 def getzones():
