@@ -7,15 +7,43 @@ from bson.objectid import ObjectId
 from bson import json_util
 import json
 import os
+import razorpay
+
+
 
 
 load_dotenv()
 
 app = Flask(__name__)
 
+
+
 client = MongoClient("mongodb+srv://bamsi:Alcuduur40@cluster0.vtlehsn.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0", server_api=ServerApi('1'))
+
 db = client["vihari"]
-CORS(app)
+CORS(app, resources={r"/*": {"origins": "*"}})
+
+@app.route('/')
+def start():
+    return "Vihari api is working....."
+
+
+@app.route('/order', methods=["POST"])
+def order():
+    incoming_msg = request.get_json();
+    razor = razorpay.Client(auth=("rzp_live_nma9bpaQRoARQg", "re38c3NxNAoGlfKs4aDPJPq8"))
+
+    options = {
+        'amount': 100,
+        'currency': 'INR',
+        'receipt': incoming_msg['firstname'] + "937932",
+        'payment_capture': 1
+    }
+
+    response = razor.order.create(data=options)
+
+    return response
+
 
 @app.route('/createZone', methods=["POST"])
 def zone():
@@ -40,6 +68,51 @@ def zone():
     
     return "working...."
 
+@app.route('/setPriceZone', methods=["POST"])
+def pricing():
+    incoming_msg = request.get_json();
+    zone = db['Zone'];
+    vehicleType = incoming_msg['zoneName']['vehicleType']
+    print(vehicleType)
+    up = zone.update_one({
+        'zone_name': incoming_msg['zoneName']['zoneName']
+    }, {
+        "$set": {
+            "price_per_km": incoming_msg['zoneName']['pricePerKm'],
+            vehicleType: {
+                "hourly_price": incoming_msg['zoneName']['hourlyPrice']
+            }
+        }
+    })
+    print(up)
+    return "worked,,,"
+
+
+
+@app.route('/setBooking', methods=["POST"])
+def setBooking():
+        incoming_msg = request.get_json();
+        customer = db['Customer']
+        payload = {
+            "orginZone": incoming_msg['originZone'],
+            "to": incoming_msg['to'],
+            "duration": incoming_msg['duration'],
+            "distance": incoming_msg['distance'],
+            "paymentId": incoming_msg['paymentId'],
+            "price": incoming_msg['price']
+
+        }
+        user = customer.update_one({
+            "email": incoming_msg['email'],
+        } , {
+            '$push': {
+                "booking_history": payload
+            }
+        }
+        
+        )
+
+        return "working......"
 
 @app.route('/getZones')
 def getzones():
@@ -265,9 +338,10 @@ def createZoneAdmin():
 @app.route('/createVehicle', methods=["POST"])
 def createVehicle():
     incoming_msg = request.get_json()["Body"];
-    zone_admins = db['Vehicles']
+    vehicles = db['Vehicles']
     zone = db["Zone"].find_one({"zone_name": incoming_msg["zone"]})
     driver = db['Driver'].find_one({"firstname": incoming_msg["driverId"]})
+    checkRegisterNumber = vehicles.find_one({"registration_number": incoming_msg["registerNumber"]})
     vehicle_dict = {
         "zone_id": zone['_id'],
         "vehicle_name": incoming_msg["vehicleName"],
@@ -278,9 +352,11 @@ def createVehicle():
         "zone": zone,
         "mileage": incoming_msg["mileage"],
         "vehicle_owner": incoming_msg["ownerType"],
-        "cost_per_hour": incoming_msg["costPerHour"],
+        "cost_per_km_one_way": incoming_msg["costPerKmOneWay"],
+        "cost_per_km": incoming_msg["costPerKm"],
         "driver_id": driver['_id'],
         "added_by" :incoming_msg["addedBy"],
+        "registration_number":incoming_msg["registerNumber"],
         "vehicle_calender_availability": "",
         "status": "",
         "rc_certificate": incoming_msg['rcCertificateUrl'],
@@ -291,9 +367,102 @@ def createVehicle():
         
     }
 
-    zone_admins.insert_one(vehicle_dict)
+    if checkRegisterNumber:
+        return "This registration Number already there", 400
+    
+
+    vehicles.insert_one(vehicle_dict)
     # print(driver['_id'])
     return "working....."
+
+@app.route('/getPrice', methods=['POST'])
+def getPrice():
+    incoming_msg = request.get_json()["Body"];
+    durationHours = incoming_msg['trip_duration'].split(' ')[0]
+    durationMinutes = incoming_msg['trip_duration'].split(' ')[2]
+    distance = incoming_msg['total_distance_calculated'].split(" ")[0]
+    allDuration = int(durationHours) if (durationMinutes) == 0 else int(durationHours) + 1
+    destination = incoming_msg['destination']
+    tripType = incoming_msg['trip_type']
+    userFirstName = incoming_msg['user_id']
+    zoneName = incoming_msg['origin_zone'].split(',')[0]
+    zone = db['Zone']
+    user = db['Customer'].find_one({"firstname": userFirstName})
+
+    payload = {
+         'originZone': zoneName,
+        'toLocation': destination,
+        'duration': allDuration,
+        'distance': int(distance),
+
+    }
+    if user:
+        price = calculateOneWayPricing(zoneName, int(distance), allDuration)
+        db['Customer'].update_one(
+            {'firstname': user['firstname']},
+            {
+                "$push": {
+                    "search_history": payload
+                }
+            }
+            )
+        return price
+
+    else:
+        price = calculateOneWayPricing(zoneName, int(distance), allDuration)
+        return  price
+    
+    
+
+    # print(zoneName)
+
+    # print()
+    # return price
+
+def calculateOneWayPricing(nameZone, distance, duration):
+    zone = db["Zone"]
+    zoneName = zone.find_one({'zone_name':nameZone })
+    pricePerKM = zoneName['price_per_km']
+    price = {
+        'SUV': '',
+        'MUV': '',
+        'Hatchback': '',
+        'Sedan': ''
+    }
+    # type = cars.find_one({"vehicle_type": car})
+    cars = ['SUV', 'MUV', 'Hatchback', 'Sedan']
+    for i in cars:
+        for j in zoneName[i]['hourly_price']:
+            r = range(int(j['from']), int(j['to']))
+            if duration in r:
+                price[i] = (int(j['price']) * duration) + (int(pricePerKM) * distance)
+
+
+    return price
+
+    
+    
+    # if duration >= type['from'] and duration <= type['to']:
+    #     return type['price_per_hour'] * duration + (int(type['cost_per_km_one_way']) * distance)
+    # elif duration >=12 and duration <=18:
+    #     return (150 * 2) * duration + (int(type['cost_per_km_one_way']) * distance)
+    # elif duration >18 and duration <= 24:
+    #     return (125 * 2) * duration + (int(type['cost_per_km_one_way']) * distance)
+            # return "hour price double * duration, + cost perkm * durationkm + "
+
+
+def calculateTwoWayPricing(car, distance, duration):
+    cars = db["Vehicles"]
+    type = cars.find_one({"vehicle_type": car})
+    # print(type['vehicle_type'])
+    
+    if type['vehicle_type'] == "Sedan" or type['vehicle_type'] == 'SUV' or type['vehicle_type'] == 'MUV' or type['vehicle_type'] == 'Hatchback':
+        if duration >=1 and duration <=12:
+            return 165 * duration + (int(type['cost_per_km_one_way']) * distance)
+        elif duration >=12 and duration <=18:
+            return 150 * duration + (int(type['cost_per_km_one_way']) * distance)
+        elif duration >18 and duration <= 24:
+            return 125 * duration + (int(type['cost_per_km_one_way']) * distance)
 
 if __name__ == '__main__':
     app.run()
